@@ -3,6 +3,16 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
+const handleVerre = require('./utils/chrono');
+const mqtt = require('mqtt');
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
+
+mqttClient.on('connect', () => {
+  console.log('✅ Connecté au broker MQTT');
+});
+
+
+
 if (!process.env.SERIAL_PORT)
   throw new Error('Missing SERIAL_PORT environment variable');
 
@@ -77,6 +87,11 @@ xbeeAPI.parser.on("data", function (frame) {
     console.log(frame)
     console.log("Value of ADO can be retrieved with frame.analogSamples.AD0")
     console.log(frame.analogSamples.AD0)
+
+  const analogValue = frame.analogSamples?.AD0;
+  if (analogValue !== undefined) {
+    handleVerre(analogValue, mqttClient);
+  }
 
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
     console.log("REMOTE_COMMAND_RESPONSE")
