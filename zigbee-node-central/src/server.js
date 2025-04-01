@@ -13,10 +13,12 @@ let currentLED = 0;
 const leds = [LED_D1, LED_D2, LED_D3];
 
 // Button debounce
-let lastButtonState = 0;
+let lastButtonState = 1; // Initialize to 1 (not pressed) since button is pull-up
 let lastDebounceTime = 0;
 const debounceDelay = 50; // 50ms debounce time
 let buttonPressed = false;
+let buttonPressStartTime = 0;
+const longPressDelay = 1000; // 1 second for long press
 
 // Function to send command to control LED
 function controlLED(led, state) {
@@ -40,6 +42,12 @@ function changeToNextLED() {
   currentLED = (currentLED + 1) % leds.length;
   console.log(`New LED will be ${leds[currentLED]}`);
   controlLED(leds[currentLED], LED_ON);
+}
+
+// Function to turn off current LED
+function turnOffCurrentLED() {
+  console.log(`Turning off LED ${leds[currentLED]}`);
+  controlLED(leds[currentLED], LED_OFF);
 }
 
 if (!process.env.SERIAL_PORT)
@@ -117,25 +125,31 @@ xbeeAPI.parser.on("data", function (frame) {
       
       console.log(`Button state: ${buttonState}, Last state: ${lastButtonState}, Button pressed: ${buttonPressed}`);
       
-      // Detect button press (transition from 1 to 0)
-      if (buttonState === 0 && lastButtonState === 1 && !buttonPressed) {
-        console.log("Button press detected!");
+      // Detect button release (transition from 0 to 1)
+      if (buttonState === 1 && lastButtonState === 0) {
+        console.log("Button released - starting timer!");
+        buttonPressStartTime = currentTime;
         buttonPressed = true;
-        lastDebounceTime = currentTime;
       }
-      
-      // Handle debounce
-      if (buttonPressed && (currentTime - lastDebounceTime) > debounceDelay) {
-        console.log("Debounce complete, changing LED");
-        changeToNextLED();
+      // Detect button press (transition from 1 to 0)
+      else if (buttonState === 0 && lastButtonState === 1 && buttonPressed) {
+        const waitDuration = currentTime - buttonPressStartTime;
+        console.log(`Button pressed after waiting ${waitDuration}ms`);
+        
+        if (waitDuration >= longPressDelay) {
+          console.log("Long wait detected - turning off LED");
+          turnOffCurrentLED();
+        } else {
+          console.log("Short wait detected - changing LED");
+          changeToNextLED();
+        }
         buttonPressed = false;
       }
       
       lastButtonState = buttonState;
     }
     
-    console.log("Value of ADO can be retrieved with frame.digitalSamples.DIO0");
-    console.log(frame.digitalSamples.DIO0);
+    console.log("Value of DIO0:", frame.digitalSamples.DIO0);
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
     console.log("REMOTE_COMMAND_RESPONSE");
   } else {
