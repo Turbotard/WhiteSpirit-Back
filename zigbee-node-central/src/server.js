@@ -3,6 +3,45 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
+// LED Control constants
+const LED_D1 = "D1";
+const LED_D2 = "D2";
+const LED_D3 = "D3";
+const LED_ON = "04";
+const LED_OFF = "00";
+let currentLED = 0;
+const leds = [LED_D1, LED_D2, LED_D3];
+
+// Button debounce
+let lastButtonState = 0;
+let lastDebounceTime = 0;
+const debounceDelay = 50; // 50ms debounce time
+let buttonPressed = false;
+
+// Function to send command to control LED
+function controlLED(led, state) {
+  console.log(`Sending command: LED ${led} -> ${state}`);
+  const frame_obj = {
+    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+    destination64: "0013A20041C345D2",
+    command: led,
+    commandParameter: [state],
+  };
+  xbeeAPI.builder.write(frame_obj);
+}
+
+// Function to change to next LED
+function changeToNextLED() {
+  console.log(`Changing LED: Current LED is ${leds[currentLED]}`);
+  // Turn off current LED
+  controlLED(leds[currentLED], LED_OFF);
+  
+  // Move to next LED and turn it on
+  currentLED = (currentLED + 1) % leds.length;
+  console.log(`New LED will be ${leds[currentLED]}`);
+  controlLED(leds[currentLED], LED_ON);
+}
+
 if (!process.env.SERIAL_PORT)
   throw new Error('Missing SERIAL_PORT environment variable');
 
@@ -34,8 +73,8 @@ serialport.on("open", function () {
   //Sample local command to ask local Xbee module the value of NODE IDENTIFIER
   var frame_obj = { // AT Request to be sent
     type: C.FRAME_TYPE.AT_COMMAND,
-    command: "NI",
-    commandParameter: [],
+    command: "NI", // Node Identifier
+    commandParameter: [], // No parameters for this command it's a get command
   };
 
   xbeeAPI.builder.write(frame_obj);
@@ -44,8 +83,8 @@ serialport.on("open", function () {
   frame_obj = { // AT Request to be sent
     type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
     destination64: BROADCAST_ADDRESS,
-    command: "NI",
-    commandParameter: [],
+    command: "NI", // Node Identifier
+    commandParameter: [], // No parameters for this command it's a get command
   };
   xbeeAPI.builder.write(frame_obj);
 
@@ -57,33 +96,51 @@ xbeeAPI.parser.on("data", function (frame) {
   //on new device is joined, register it
   if (C.FRAME_TYPE.JOIN_NOTIFICATION_STATUS === frame.type) {
     console.log("New device has joined network, you can register has new device available");
-
   }
 
   if (C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET === frame.type) {
     console.log("C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET");
     let dataReceived = String.fromCharCode.apply(null, frame.data);
     console.log(">> ZIGBEE_RECEIVE_PACKET >", dataReceived);
-
   }
 
   if (C.FRAME_TYPE.NODE_IDENTIFICATION === frame.type) {
-    // let dataReceived = String.fromCharCode.apply(null, frame.nodeIdentifier);
     console.log("NODE_IDENTIFICATION");
-
   } else if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
-
-    console.log("ZIGBEE_IO_DATA_SAMPLE_RX")
-    console.log(frame)
-    console.log("Value of ADO can be retrieved with frame.analogSamples.AD0")
-    console.log(frame.analogSamples.AD0)
-
+    console.log("ZIGBEE_IO_DATA_SAMPLE_RX");
+    console.log(frame);
+    
+    // Check if DIO0 (button) is pressed with debounce
+    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
+      const currentTime = Date.now();
+      const buttonState = frame.digitalSamples.DIO0;
+      
+      console.log(`Button state: ${buttonState}, Last state: ${lastButtonState}, Button pressed: ${buttonPressed}`);
+      
+      // Detect button press (transition from 1 to 0)
+      if (buttonState === 0 && lastButtonState === 1 && !buttonPressed) {
+        console.log("Button press detected!");
+        buttonPressed = true;
+        lastDebounceTime = currentTime;
+      }
+      
+      // Handle debounce
+      if (buttonPressed && (currentTime - lastDebounceTime) > debounceDelay) {
+        console.log("Debounce complete, changing LED");
+        changeToNextLED();
+        buttonPressed = false;
+      }
+      
+      lastButtonState = buttonState;
+    }
+    
+    console.log("Value of ADO can be retrieved with frame.digitalSamples.DIO0");
+    console.log(frame.digitalSamples.DIO0);
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
-    console.log("REMOTE_COMMAND_RESPONSE")
+    console.log("REMOTE_COMMAND_RESPONSE");
   } else {
     console.debug(frame);
-    let dataReceived = String.fromCharCode.apply(null, frame.commandData)
+    let dataReceived = String.fromCharCode.apply(null, frame.commandData);
     console.log(dataReceived);
   }
-
 });
