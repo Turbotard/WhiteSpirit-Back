@@ -54,7 +54,7 @@ class ButtonHandler {
     
     // Publish LED state to MQTT
     if (this.mqttClient) {
-      this.mqttClient.publish('zigbee/led/state', JSON.stringify({
+      this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
         led: LED_D1,
         state: state === LED_ON ? 'on' : 'off'
       }));
