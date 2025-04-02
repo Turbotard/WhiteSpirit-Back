@@ -5,6 +5,18 @@ const mqtt = require('mqtt');
 const config = require('./config');
 const handleVerre = require('./utils/chrono');
 
+const handleVerre = require('./utils/chrono');
+const mqtt = require('mqtt');
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
+const ButtonHandler = require('./utils/ButtonHandler');
+
+mqttClient.on('connect', () => {
+  console.log('✅ Connecté au broker MQTT');
+});
+
+if (!process.env.SERIAL_PORT)
+  throw new Error('Missing SERIAL_PORT environment variable');
+
 // Initialisation MQTT
 const mqttClient = mqtt.connect(config.mqtt.brokerUrl, {
   clientId: config.mqtt.clientId
@@ -33,10 +45,16 @@ const systemState = {
 let xbeeAPI;
 let serialport;
 
+// Create button handler
+const buttonHandler = new ButtonHandler(xbeeAPI, mqttClient);
+
+const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
+serialport.on("open", function () {
 try {
   xbeeAPI = new xbee_api.XBeeAPI({
     api_mode: config.xbee.apiMode
   });
+
 
   serialport = new SerialPort(config.serial.port, {
     baudRate: config.serial.baudRate
@@ -151,6 +169,19 @@ function handleModuleControl(message) {
       return;
     }
 
+    console.log("ZIGBEE_IO_DATA_SAMPLE_RX")
+    console.log(frame)
+
+    const analogValue = frame.analogSamples?.AD0;
+    if (analogValue !== undefined) {
+      handleVerre(analogValue, mqttClient);
+    }
+
+    // Handle button state if DIO0 is present
+    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
+      buttonHandler.handleButtonState(frame.digitalSamples.DIO0);
+    }
+
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
       destination64: command.moduleId,
@@ -181,6 +212,8 @@ function publishSensorData(sensorId, data) {
     if (err) console.error('Erreur de publication:', err);
   });
 }
+
+});
 
 function publishModuleStatus(moduleId, status) {
   const payload = JSON.stringify({
