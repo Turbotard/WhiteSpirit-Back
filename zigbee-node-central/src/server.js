@@ -3,6 +3,14 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
+const handleVerre = require('./utils/chrono');
+const mqtt = require('mqtt');
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
+
+mqttClient.on('connect', () => {
+  console.log('✅ Connecté au broker MQTT');
+});
+
 // LED Control constants
 const LED_D1 = "D1";
 const LED_D2 = "D2";
@@ -81,8 +89,8 @@ serialport.on("open", function () {
   //Sample local command to ask local Xbee module the value of NODE IDENTIFIER
   var frame_obj = { // AT Request to be sent
     type: C.FRAME_TYPE.AT_COMMAND,
-    command: "NI", // Node Identifier
-    commandParameter: [], // No parameters for this command it's a get command
+    command: "NI",
+    commandParameter: [],
   };
 
   xbeeAPI.builder.write(frame_obj);
@@ -91,8 +99,8 @@ serialport.on("open", function () {
   frame_obj = { // AT Request to be sent
     type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
     destination64: BROADCAST_ADDRESS,
-    command: "NI", // Node Identifier
-    commandParameter: [], // No parameters for this command it's a get command
+    command: "NI",
+    commandParameter: [],
   };
   xbeeAPI.builder.write(frame_obj);
 
@@ -104,57 +112,38 @@ xbeeAPI.parser.on("data", function (frame) {
   //on new device is joined, register it
   if (C.FRAME_TYPE.JOIN_NOTIFICATION_STATUS === frame.type) {
     console.log("New device has joined network, you can register has new device available");
+
   }
 
   if (C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET === frame.type) {
     console.log("C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET");
     let dataReceived = String.fromCharCode.apply(null, frame.data);
     console.log(">> ZIGBEE_RECEIVE_PACKET >", dataReceived);
+
   }
 
   if (C.FRAME_TYPE.NODE_IDENTIFICATION === frame.type) {
+    // let dataReceived = String.fromCharCode.apply(null, frame.nodeIdentifier);
     console.log("NODE_IDENTIFICATION");
+
   } else if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
-    console.log("ZIGBEE_IO_DATA_SAMPLE_RX");
-    console.log(frame);
-    
-    // Check if DIO0 (button) is pressed with debounce
-    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
-      const currentTime = Date.now();
-      const buttonState = frame.digitalSamples.DIO0;
-      
-      console.log(`Button state: ${buttonState}, Last state: ${lastButtonState}, Button pressed: ${buttonPressed}`);
-      
-      // Detect button release (transition from 0 to 1)
-      if (buttonState === 1 && lastButtonState === 0) {
-        console.log("Button released - starting timer!");
-        buttonPressStartTime = currentTime;
-        buttonPressed = true;
-      }
-      // Detect button press (transition from 1 to 0)
-      else if (buttonState === 0 && lastButtonState === 1 && buttonPressed) {
-        const waitDuration = currentTime - buttonPressStartTime;
-        console.log(`Button pressed after waiting ${waitDuration}ms`);
-        
-        if (waitDuration >= longPressDelay) {
-          console.log("Long wait detected - turning off LED");
-          turnOffCurrentLED();
-        } else {
-          console.log("Short wait detected - changing LED");
-          changeToNextLED();
-        }
-        buttonPressed = false;
-      }
-      
-      lastButtonState = buttonState;
+
+    console.log("ZIGBEE_IO_DATA_SAMPLE_RX")
+    console.log(frame)
+    console.log("Value of ADO can be retrieved with frame.analogSamples.AD0")
+    console.log(frame.analogSamples.AD0)
+
+    const analogValue = frame.analogSamples?.AD0;
+    if (analogValue !== undefined) {
+      handleVerre(analogValue, mqttClient);
     }
-    
-    console.log("Value of DIO0:", frame.digitalSamples.DIO0);
+
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
-    console.log("REMOTE_COMMAND_RESPONSE");
+    console.log("REMOTE_COMMAND_RESPONSE")
   } else {
     console.debug(frame);
-    let dataReceived = String.fromCharCode.apply(null, frame.commandData);
+    let dataReceived = String.fromCharCode.apply(null, frame.commandData)
     console.log(dataReceived);
   }
+
 });
