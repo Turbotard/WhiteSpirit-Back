@@ -53,7 +53,7 @@ class ButtonHandler {
     console.log(`Sending command: LED D1 -> ${state}`);
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013a20041fb6063",
+      destination64: "0013A20041FB6063",
       command: LED_D1,
       commandParameter: [state],
     };
