@@ -18,7 +18,7 @@ module.exports = function handleVerre(analogValue, mqttClient) {
         state.verrePresent = true;
         state.currentSeconds = 20;
         console.log("Verre détecté, démarrage du compte à rebours...");
-        const url = generateRestaurantUrl("table", 1, "timer")
+        const url = generateRestaurantUrl("buffet", 1, "timer")
 
         console.log(url)
         mqttClient.publish('capteur/verre', 'present');
