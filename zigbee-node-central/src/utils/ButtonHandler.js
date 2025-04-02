@@ -50,12 +50,12 @@ class ButtonHandler {
   }
 
   // Function to send command to control LED
-  controlLED(state) {
-    console.log(`Sending command: LED D1 -> ${state}`);
+  controlLED(state, ledPin = LED_D1) {
+    console.log(`Sending command: LED ${ledPin} -> ${state}`);
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
       destination64: "0013A20041FB6063",
-      command: LED_D1,
+      command: ledPin,
       commandParameter: [state],
     };
     console.log("Frame object:", JSON.stringify(frame_obj, null, 2));
@@ -65,7 +65,7 @@ class ButtonHandler {
     // Publish LED state to MQTT
     if (this.mqttClient) {
       this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
-        led: LED_D1,
+        led: ledPin,
         state: state === LED_ON ? 'on' : 'off'
       }));
     }
@@ -80,16 +80,16 @@ class ButtonHandler {
       
       // Set LED state based on the received message
       if (data.state === 'on') {
-        this.controlLED(LED_ON);
+        this.controlLED(LED_ON, LED_D2);
         this.isLedOn = true;
       } else {
-        this.controlLED(LED_OFF);
+        this.controlLED(LED_OFF, LED_D2);
         this.isLedOn = false;
       }
     } catch (error) {
       console.error("Error parsing order_ready message:", error);
       // Default behavior: turn off LED
-      this.controlLED(LED_OFF);
+      this.controlLED(LED_OFF, LED_D2);
       this.isLedOn = false;
     }
   }
@@ -104,7 +104,7 @@ class ButtonHandler {
       
       // Toggle LED state
       this.isLedOn = !this.isLedOn;
-      this.controlLED(this.isLedOn ? LED_ON : LED_OFF);
+      this.controlLED(this.isLedOn ? LED_ON : LED_OFF, LED_D1);
       
       // Publish ready_to_order message
       if (this.mqttClient) {
