@@ -20,6 +20,33 @@ class ButtonHandler {
     this.buttonPressed = false;
     this.buttonPressStartTime = 0;
     this.longPressDelay = 1000; // 1 second for long press
+
+    // Configure LEDs on startup
+    this.configureLEDs();
+  }
+
+  // Configure LEDs on startup
+  configureLEDs() {
+    console.log("Configuring LEDs...");
+    // Configure D1, D2, D3 as digital outputs
+    const configFrame = {
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: "0013a20041fb6063",
+      command: "D1", // We'll configure each LED one by one
+      commandParameter: ["03"], // 03 = Digital Output
+    };
+    this.xbeeAPI.builder.write(configFrame);
+    console.log("Sent D1 configuration");
+
+    // Configure D2
+    configFrame.command = "D2";
+    this.xbeeAPI.builder.write(configFrame);
+    console.log("Sent D2 configuration");
+
+    // Configure D3
+    configFrame.command = "D3";
+    this.xbeeAPI.builder.write(configFrame);
+    console.log("Sent D3 configuration");
   }
 
   // Function to send command to control LED
@@ -27,11 +54,13 @@ class ButtonHandler {
     console.log(`Sending command: LED ${led} -> ${state}`);
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013A20041C345D2",
+      destination64: "0013a20041fb6063",
       command: led,
       commandParameter: [state],
     };
+    console.log("Frame object:", JSON.stringify(frame_obj, null, 2));
     this.xbeeAPI.builder.write(frame_obj);
+    console.log("Command sent to XBee");
     
     // Publish LED state to MQTT
     if (this.mqttClient) {
