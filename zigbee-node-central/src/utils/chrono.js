@@ -43,3 +43,4 @@ module.exports = function handleVerre(analogValue, mqttClient) {
     }
   }
 }
+
