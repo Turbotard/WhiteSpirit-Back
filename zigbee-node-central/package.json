@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "cross-env NODE_ENV=production node src/server"
+    "start": "cross-env NODE_ENV=production node src/server",
+    "test": "node src/test-app.js"
   },
   "dependencies": {
     "dotenv": "^8.2.0",
