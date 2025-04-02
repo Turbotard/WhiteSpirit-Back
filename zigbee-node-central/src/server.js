@@ -87,8 +87,6 @@ xbeeAPI.parser.on("data", function (frame) {
 
     console.log("ZIGBEE_IO_DATA_SAMPLE_RX")
     console.log(frame)
-    console.log("Value of ADO can be retrieved with frame.digitalSamples.AD0")
-    console.log(frame.digitalSamples.AD0)
 
     const analogValue = frame.analogSamples?.AD0;
     if (analogValue !== undefined) {
