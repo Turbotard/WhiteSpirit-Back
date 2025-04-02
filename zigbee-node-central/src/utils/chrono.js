@@ -3,14 +3,15 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
-const handleVerre = require('./utils/chrono');
+const handleVerre = require('./chrono');
 const mqtt = require('mqtt');
 const mqttClient = mqtt.connect('mqtt://localhost:1883');
-const ButtonHandler = require('./utils/ButtonHandler');
 
 mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
 });
+
+
 
 if (!process.env.SERIAL_PORT)
   throw new Error('Missing SERIAL_PORT environment variable');
@@ -36,9 +37,6 @@ let serialport = new SerialPort(SERIAL_PORT, {
 
 serialport.pipe(xbeeAPI.parser);
 xbeeAPI.builder.pipe(serialport);
-
-// Create button handler
-const buttonHandler = new ButtonHandler(xbeeAPI, mqttClient);
 
 const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
 serialport.on("open", function () {
@@ -90,15 +88,10 @@ xbeeAPI.parser.on("data", function (frame) {
     console.log("Value of ADO can be retrieved with frame.analogSamples.AD0")
     console.log(frame.analogSamples.AD0)
 
-    const analogValue = frame.analogSamples?.AD0;
-    if (analogValue !== undefined) {
-      handleVerre(analogValue, mqttClient);
-    }
-
-    // Handle button state if DIO0 is present
-    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
-      buttonHandler.handleButtonState(frame.digitalSamples.DIO0);
-    }
+  const analogValue = frame.analogSamples?.AD0;
+  if (analogValue !== undefined) {
+    handleVerre(analogValue, mqttClient);
+  }
 
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
     console.log("REMOTE_COMMAND_RESPONSE")
