@@ -1,102 +1,45 @@
-var SerialPort = require('serialport');
-var xbee_api = require('xbee-api');
-var C = xbee_api.constants;
-require('dotenv').config()
-
-const handleVerre = require('./chrono');
-const mqtt = require('mqtt');
-const mqttClient = mqtt.connect('mqtt://localhost:1883');
-
-mqttClient.on('connect', () => {
-  console.log('✅ Connecté au broker MQTT');
-});
-
-
-
-if (!process.env.SERIAL_PORT)
-  throw new Error('Missing SERIAL_PORT environment variable');
-
-if (!process.env.SERIAL_BAUDRATE)
-  throw new Error('Missing SERIAL_BAUDRATE environment variable');
-
-// Replace with your serial port and baud rate (9600 by default)
-const SERIAL_PORT = process.env.SERIAL_PORT;
-
-// Ensure to configure your XBEE Module in API MODE 2
-var xbeeAPI = new xbee_api.XBeeAPI({
-  api_mode: 2
-});
-
-let serialport = new SerialPort(SERIAL_PORT, {
-  baudRate: parseInt(process.env.SERIAL_BAUDRATE) || 9600,
-}, function (err) {
-  if (err) {
-    return console.log('Creating SerialPort', err.message)
-  }
-});
-
-serialport.pipe(xbeeAPI.parser);
-xbeeAPI.builder.pipe(serialport);
-
-const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
-serialport.on("open", function () {
-
-  //Sample local command to ask local Xbee module the value of NODE IDENTIFIER
-  var frame_obj = { // AT Request to be sent
-    type: C.FRAME_TYPE.AT_COMMAND,
-    command: "NI",
-    commandParameter: [],
-  };
-
-  xbeeAPI.builder.write(frame_obj);
-
-  //Sample remote command to ask all remote Xbee modules the value of their NODE IDENTIFIER
-  frame_obj = { // AT Request to be sent
-    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-    destination64: BROADCAST_ADDRESS,
-    command: "NI",
-    commandParameter: [],
-  };
-  xbeeAPI.builder.write(frame_obj);
-
-});
-
-// All frames parsed by the XBee will be emitted here
-xbeeAPI.parser.on("data", function (frame) {
-
-  //on new device is joined, register it
-  if (C.FRAME_TYPE.JOIN_NOTIFICATION_STATUS === frame.type) {
-    console.log("New device has joined network, you can register has new device available");
-
+module.exports = function handleVerre(analogValue, mqttClient) {
+  if (!global.timerState) {
+    global.timerState = {
+      countdownTimer: null,
+      currentSeconds: 20,
+      verrePresent: false,
+      compteAReboursTermine: false
+    };
   }
 
-  if (C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET === frame.type) {
-    console.log("C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET");
-    let dataReceived = String.fromCharCode.apply(null, frame.data);
-    console.log(">> ZIGBEE_RECEIVE_PACKET >", dataReceived);
+  const state = global.timerState;
 
-  }
+  if (analogValue > 200) {
+    if (!state.verrePresent && !state.compteAReboursTermine) {
+      state.verrePresent = true;
+      state.currentSeconds = 20;
+      console.log("Verre détecté, démarrage du compte à rebours...");
+      mqttClient.publish('capteur/verre', 'present');
 
-  if (C.FRAME_TYPE.NODE_IDENTIFICATION === frame.type) {
-    // let dataReceived = String.fromCharCode.apply(null, frame.nodeIdentifier);
-    console.log("NODE_IDENTIFICATION");
+      state.countdownTimer = setInterval(() => {
+        console.log(`⏳ Temps restant : ${state.currentSeconds}s`);
+        mqttClient.publish('capteur/verre/chrono', state.currentSeconds.toString());
+        state.currentSeconds--;
 
-  } else if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
-
-    console.log("ZIGBEE_IO_DATA_SAMPLE_RX")
-    console.log(frame)
-
-  const analogValue = frame.analogSamples?.AD0;
-  if (analogValue !== undefined) {
-    handleVerre(analogValue, mqttClient);
-  }
-
-  } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
-    console.log("REMOTE_COMMAND_RESPONSE")
+        if (state.currentSeconds < 0) {
+          console.log("⏱️ 20 secondes écoulées → STOP !");
+          mqttClient.publish('capteur/verre/chrono', '0');
+          clearInterval(state.countdownTimer);
+          state.countdownTimer = null;
+          state.compteAReboursTermine = true;
+        }
+      }, 1000);
+    }
   } else {
-    console.debug(frame);
-    let dataReceived = String.fromCharCode.apply(null, frame.commandData)
-    console.log(dataReceived);
+    if (state.verrePresent || state.compteAReboursTermine) {
+      console.log("❌ Verre retiré, réinitialisation...");
+      mqttClient.publish('capteur/verre', 'absent');
+      clearInterval(state.countdownTimer);
+      state.countdownTimer = null;
+      state.currentSeconds = 20;
+      state.verrePresent = false;
+      state.compteAReboursTermine = false;
+    }
   }
-
-});
+}
