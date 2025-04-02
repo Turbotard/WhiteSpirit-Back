@@ -3,6 +3,7 @@ const C = xbee_api.constants;
 
 // LED Control constants
 const LED_D1 = "D1";
+const LED_D2 = "D2";
 const LED_ON = "04";
 const LED_OFF = "00";
 
@@ -24,7 +25,7 @@ class ButtonHandler {
     this.mqttClient.on('message', (topic, message) => {
       if (topic.includes('order_ready')) {
         console.log("Received order_ready message");
-        this.handleOrderReady();
+        this.handleOrderReady(topic, message);
       }
     });
   }
@@ -71,11 +72,26 @@ class ButtonHandler {
   }
 
   // Handle order_ready message
-  handleOrderReady() {
+  handleOrderReady(topic, message) {
     console.log("Handling order_ready message");
-    // Turn off D1
-    this.controlLED(LED_OFF);
-    this.isLedOn = false;
+    try {
+      const data = JSON.parse(message.toString());
+      console.log("Message data:", data);
+      
+      // Set LED state based on the received message
+      if (data.state === 'on') {
+        this.controlLED(LED_ON);
+        this.isLedOn = true;
+      } else {
+        this.controlLED(LED_OFF);
+        this.isLedOn = false;
+      }
+    } catch (error) {
+      console.error("Error parsing order_ready message:", error);
+      // Default behavior: turn off LED
+      this.controlLED(LED_OFF);
+      this.isLedOn = false;
+    }
   }
 
   // Handle button state change
@@ -92,8 +108,8 @@ class ButtonHandler {
       
       // Publish ready_to_order message
       if (this.mqttClient) {
-        this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
-          led: LED_D1,
+        this.mqttClient.publish('restaurant/tables/{id_table}/order_ready', JSON.stringify({
+          led: LED_D2,
           state: this.isLedOn ? 'on' : 'off'
         }));
       }
