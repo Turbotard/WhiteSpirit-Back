@@ -1,8 +1,12 @@
 const generateRestaurantUrl = require('./sender');
 
-module.exports = function handleBac(analogValue, mqttClient) {
-  if (!global.timerState) {
-    global.timerState = {
+module.exports = function handleBac(analogValue, mqttClient, capteurId) {
+  // capteurId = "AD0" ou "AD1"
+  
+  if (!global.timerStates) global.timerStates = {};
+
+  if (!global.timerStates[capteurId]) {
+    global.timerStates[capteurId] = {
       countdownTimer: null,
       currentSeconds: 10,
       verrePresent: false,
@@ -10,27 +14,29 @@ module.exports = function handleBac(analogValue, mqttClient) {
     };
   }
 
-  const state = global.timerState;
+  const state = global.timerStates[capteurId];
+  const buffetId = capteurId === "AD0" ? 1 : 2;
 
   if (analogValue > 200) {
     if (!state.verrePresent && !state.compteAReboursTermine) {
       state.verrePresent = true;
       state.currentSeconds = 10;
-      console.log("bac détecté, démarrage du compte à rebours...");
 
-      mqttClient.publish(generateRestaurantUrl("buffet", 1, "active"), "true");
+      console.log(`✅ ${capteurId} détecté, démarrage du compte à rebours...`);
+
+      mqttClient.publish(generateRestaurantUrl("buffet", buffetId, "active"), "true");
 
       state.countdownTimer = setInterval(() => {
-        console.log(`⏳ Temps restant : ${state.currentSeconds}s`);
+        console.log(`⏳ [${capteurId}] Temps restant : ${state.currentSeconds}s`);
         
-        mqttClient.publish(generateRestaurantUrl("buffet", 1, "timer"), state.currentSeconds.toString());
+        mqttClient.publish(generateRestaurantUrl("buffet", buffetId, "timer"), state.currentSeconds.toString());
 
         state.currentSeconds--;
 
         if (state.currentSeconds < 0) {
-          console.log("temps écoulé");
-          
-          mqttClient.publish(generateRestaurantUrl("buffet", 1, "active"), "false");
+          console.log(`⏰ [${capteurId}] Temps écoulé`);
+
+          mqttClient.publish(generateRestaurantUrl("buffet", buffetId, "active"), "false");
 
           clearInterval(state.countdownTimer);
           state.countdownTimer = null;
@@ -40,9 +46,9 @@ module.exports = function handleBac(analogValue, mqttClient) {
     }
   } else {
     if (state.verrePresent || state.compteAReboursTermine) {
-      console.log("❌ bac retiré, réinitialisation...");
-      
-      mqttClient.publish(generateRestaurantUrl("buffet", 1, "active"), "false");
+      console.log(`❌ [${capteurId}] bac retiré, réinitialisation...`);
+
+      mqttClient.publish(generateRestaurantUrl("buffet", buffetId, "active"), "false");
 
       clearInterval(state.countdownTimer);
       state.countdownTimer = null;
