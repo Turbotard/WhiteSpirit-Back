@@ -3,10 +3,11 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
-const handleVerre = require('./utils/chrono');
+const handleBac = require('./utils/chrono');
 const mqtt = require('mqtt');
-const mqttClient = mqtt.connect('mqtt://localhost:1883');
+const mqttClient = mqtt.connect('mqtt://test.mosquitto.org');
 const ButtonHandler = require('./utils/ButtonHandler');
+const config = require('./config');
 
 mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
@@ -91,7 +92,7 @@ xbeeAPI.parser.on("data", function (frame) {
 
     const analogValue = frame.analogSamples?.AD0;
     if (analogValue !== undefined) {
-      handleVerre(analogValue, mqttClient);
+      handleBac(analogValue, mqttClient);
     }
 
     // Handle button state if DIO0 is present
@@ -221,7 +222,7 @@ function handleModuleControl(message) {
 
     const analogValue = frame.analogSamples?.AD0;
     if (analogValue !== undefined) {
-      handleVerre(analogValue, mqttClient);
+      handleBac(analogValue, mqttClient);
     }
 
     // Handle button state if DIO0 is present
