@@ -1,26 +1,12 @@
-const SerialPort = require('serialport');
-const xbee_api = require('xbee-api');
-const C = xbee_api.constants;
-const mqtt = require('mqtt');
-const config = require('./config');
-const handleVerre = require('./utils/chrono');
+var SerialPort = require('serialport');
+var xbee_api = require('xbee-api');
+var C = xbee_api.constants;
+require('dotenv').config()
 
 const handleVerre = require('./utils/chrono');
 const mqtt = require('mqtt');
 const mqttClient = mqtt.connect('mqtt://localhost:1883');
 const ButtonHandler = require('./utils/ButtonHandler');
-
-mqttClient.on('connect', () => {
-  console.log('✅ Connecté au broker MQTT');
-});
-
-if (!process.env.SERIAL_PORT)
-  throw new Error('Missing SERIAL_PORT environment variable');
-
-// Initialisation MQTT
-const mqttClient = mqtt.connect(config.mqtt.brokerUrl, {
-  clientId: config.mqtt.clientId
-});
 
 mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
@@ -35,54 +21,115 @@ mqttClient.on('connect', () => {
   });
 });
 
-// État global du système
-const systemState = {
-  serialConnected: false,
-  sensors: {}
-};
+if (!process.env.SERIAL_PORT)
+  throw new Error('Missing SERIAL_PORT environment variable');
 
-// Initialisation XBee
-let xbeeAPI;
-let serialport;
+if (!process.env.SERIAL_BAUDRATE)
+  throw new Error('Missing SERIAL_BAUDRATE environment variable');
 
-// Create button handler
+// Replace with your serial port and baud rate (9600 by default)
+const SERIAL_PORT = process.env.SERIAL_PORT;
+
+// Ensure to configure your XBEE Module in API MODE 2
+var xbeeAPI = new xbee_api.XBeeAPI({
+  api_mode: 2
+});
+
+let serialport = new SerialPort(SERIAL_PORT, {
+  baudRate: parseInt(process.env.SERIAL_BAUDRATE) || 9600,
+}, function (err) {
+  if (err) {
+    return console.log('Creating SerialPort', err.message)
+  }
+});
+
+serialport.pipe(xbeeAPI.parser);
+xbeeAPI.builder.pipe(serialport);
+
+// Create button handler AFTER xbeeAPI is initialized
 const buttonHandler = new ButtonHandler(xbeeAPI, mqttClient);
 
 const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
 serialport.on("open", function () {
-try {
-  xbeeAPI = new xbee_api.XBeeAPI({
-    api_mode: config.xbee.apiMode
-  });
+  //Sample local command to ask local Xbee module the value of NODE IDENTIFIER
+  var frame_obj = { // AT Request to be sent
+    type: C.FRAME_TYPE.AT_COMMAND,
+    command: "NI",
+    commandParameter: [],
+  };
 
+  xbeeAPI.builder.write(frame_obj);
 
-  serialport = new SerialPort(config.serial.port, {
-    baudRate: config.serial.baudRate
-  }, function (err) {
-    if (err) {
-      console.error('❌ Erreur de création du port série:', err.message);
-      systemState.serialConnected = false;
-      // Initialiser les capteurs comme non disponibles
-      Object.keys(config.sensors).forEach(type => {
-        systemState.sensors[type] = {
-          ...config.sensors[type],
-          available: false,
-          error: 'Port série non disponible'
-        };
-      });
-      return;
-    }
-    systemState.serialConnected = true;
-    console.log('✅ Port série connecté');
-  });
+  //Sample remote command to ask all remote Xbee modules the value of their NODE IDENTIFIER
+  frame_obj = { // AT Request to be sent
+    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+    destination64: BROADCAST_ADDRESS,
+    command: "NI",
+    commandParameter: [],
+  };
+  xbeeAPI.builder.write(frame_obj);
+});
 
-  if (serialport) {
-    serialport.pipe(xbeeAPI.parser);
-    xbeeAPI.builder.pipe(serialport);
+// All frames parsed by the XBee will be emitted here
+xbeeAPI.parser.on("data", function (frame) {
+  //on new device is joined, register it
+  if (C.FRAME_TYPE.JOIN_NOTIFICATION_STATUS === frame.type) {
+    console.log("New device has joined network, you can register has new device available");
   }
-} catch (error) {
-  console.error('❌ Erreur lors de l\'initialisation XBee:', error.message);
-  systemState.serialConnected = false;
+
+  if (C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET === frame.type) {
+    console.log("C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET");
+    let dataReceived = String.fromCharCode.apply(null, frame.data);
+    console.log(">> ZIGBEE_RECEIVE_PACKET >", dataReceived);
+  }
+
+  if (C.FRAME_TYPE.NODE_IDENTIFICATION === frame.type) {
+    console.log("NODE_IDENTIFICATION");
+  } else if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
+    console.log("ZIGBEE_IO_DATA_SAMPLE_RX");
+    console.log(frame);
+
+    const analogValue = frame.analogSamples?.AD0;
+    if (analogValue !== undefined) {
+      handleVerre(analogValue, mqttClient);
+    }
+
+    // Handle button state if DIO0 is present
+    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
+      buttonHandler.handleButtonState(frame.digitalSamples.DIO0);
+    }
+  } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
+    console.log("REMOTE_COMMAND_RESPONSE");
+  } else {
+    console.debug(frame);
+    let dataReceived = String.fromCharCode.apply(null, frame.commandData);
+    console.log(dataReceived);
+  }
+});
+
+// Fonction de publication MQTT
+function publishSensorData(sensorId, data) {
+  const payload = JSON.stringify({
+    sensorId,
+    timestamp: new Date().toISOString(),
+    data
+  });
+
+  mqttClient.publish('sensors/data', payload, (err) => {
+    if (err) console.error('Erreur de publication:', err);
+  });
+}
+
+function publishModuleStatus(moduleId, status) {
+  const payload = JSON.stringify({
+    moduleId,
+    timestamp: new Date().toISOString(),
+    status
+  });
+
+  mqttClient.publish('modules/status', payload, (err) => {
+    if (err) console.error('Erreur de publication:', err);
+  });
 }
 
 // Gestion des messages MQTT
@@ -199,52 +246,6 @@ function handleModuleControl(message) {
     console.error('Erreur lors du traitement de la commande de contrôle:', error);
   }
 }
-
-// Fonctions de publication MQTT
-function publishSensorData(sensorId, data) {
-  const payload = JSON.stringify({
-    sensorId,
-    timestamp: new Date().toISOString(),
-    data
-  });
-
-  mqttClient.publish(config.mqtt.topics.sensorData, payload, (err) => {
-    if (err) console.error('Erreur de publication:', err);
-  });
-}
-
-});
-
-function publishModuleStatus(moduleId, status) {
-  const payload = JSON.stringify({
-    moduleId,
-    timestamp: new Date().toISOString(),
-    status
-  });
-
-  mqttClient.publish(config.mqtt.topics.moduleStatus, payload, (err) => {
-    if (err) console.error('Erreur de publication:', err);
-  });
-}
-
-// Gestion des trames XBee
-xbeeAPI.parser.on("data", function (frame) {
-  if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
-    const sensorData = {
-      analogSamples: frame.analogSamples,
-      digitalSamples: frame.digitalSamples,
-      sourceAddress: frame.remote64
-    };
-
-    publishSensorData(frame.remote64, sensorData);
-
-    const analogValue = frame.analogSamples?.AD0;
-    if (analogValue !== undefined) {
-      handleVerre(analogValue, mqttClient);
-    }
-  }
-  // ... rest of the frame handling code ...
-});
 
 // Gestionnaire d'état des capteurs
 const sensorStatus = new Map();
