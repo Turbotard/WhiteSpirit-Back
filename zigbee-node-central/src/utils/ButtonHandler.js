@@ -18,6 +18,15 @@ class ButtonHandler {
 
     // Configure LED on startup
     this.configureLED();
+
+    // Subscribe to order_ready topic
+    this.mqttClient.subscribe('restaurant/tables/+/order_ready');
+    this.mqttClient.on('message', (topic, message) => {
+      if (topic.includes('order_ready')) {
+        console.log("Received order_ready message");
+        this.handleOrderReady();
+      }
+    });
   }
 
   // Configure LED on startup
@@ -61,6 +70,14 @@ class ButtonHandler {
     }
   }
 
+  // Handle order_ready message
+  handleOrderReady() {
+    console.log("Handling order_ready message");
+    // Turn off D1
+    this.controlLED(LED_OFF);
+    this.isLedOn = false;
+  }
+
   // Handle button state change
   handleButtonState(buttonState) {
     console.log(`Button state: ${buttonState}, Last state: ${this.lastButtonState}`);
@@ -73,12 +90,11 @@ class ButtonHandler {
       this.isLedOn = !this.isLedOn;
       this.controlLED(this.isLedOn ? LED_ON : LED_OFF);
       
-      // Publish button press to MQTT
+      // Publish ready_to_order message
       if (this.mqttClient) {
-        this.mqttClient.publish('zigbee/button/event', JSON.stringify({
-          event: 'pressed',
-          ledState: this.isLedOn ? 'on' : 'off',
-          timestamp: Date.now()
+        this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
+          led: LED_D1,
+          state: this.isLedOn ? 'on' : 'off'
         }));
       }
     }
