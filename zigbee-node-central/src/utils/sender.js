@@ -12,10 +12,11 @@ module.exports = function generateRestaurantUrl(type, id, option) {
 restaurant/tables/{id_table}/ready_to_order
 restaurant/tables/{id_table}/order_ready
 restaurant/tables/{id_table}/bill_request
+restaurant/tables/{id_table}/active
+restaurant/tables/{id_table}/departure_detected
 restaurant/buffet/{id_bac}/timer
 restaurant/buffet/{id_bac}/weight
 restaurant/buffet/{id_bac}/refill_needed
 restaurant/buffet/{id_bac}/temperature
-restaurant/tables/{id_table}/departure_detected
 
 */
