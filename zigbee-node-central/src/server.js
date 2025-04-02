@@ -11,52 +11,7 @@ mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
 });
 
-// LED Control constants
-const LED_D1 = "D1";
-const LED_D2 = "D2";
-const LED_D3 = "D3";
-const LED_ON = "04";
-const LED_OFF = "00";
-let currentLED = 0;
-const leds = [LED_D1, LED_D2, LED_D3];
 
-// Button debounce
-let lastButtonState = 1; // Initialize to 1 (not pressed) since button is pull-up
-let lastDebounceTime = 0;
-const debounceDelay = 50; // 50ms debounce time
-let buttonPressed = false;
-let buttonPressStartTime = 0;
-const longPressDelay = 1000; // 1 second for long press
-
-// Function to send command to control LED
-function controlLED(led, state) {
-  console.log(`Sending command: LED ${led} -> ${state}`);
-  const frame_obj = {
-    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-    destination64: "0013A20041C345D2",
-    command: led,
-    commandParameter: [state],
-  };
-  xbeeAPI.builder.write(frame_obj);
-}
-
-// Function to change to next LED
-function changeToNextLED() {
-  console.log(`Changing LED: Current LED is ${leds[currentLED]}`);
-  // Turn off current LED
-  controlLED(leds[currentLED], LED_OFF);
-  
-  // Move to next LED and turn it on
-  currentLED = (currentLED + 1) % leds.length;
-  console.log(`New LED will be ${leds[currentLED]}`);
-  controlLED(leds[currentLED], LED_ON);
-}
-
-// Function to turn off current LED
-function turnOffCurrentLED() {
-  console.log(`Turning off LED ${leds[currentLED]}`);
-  controlLED(leds[currentLED], LED_OFF);
-}
 
 if (!process.env.SERIAL_PORT)
   throw new Error('Missing SERIAL_PORT environment variable');
@@ -133,10 +88,10 @@ xbeeAPI.parser.on("data", function (frame) {
     console.log("Value of ADO can be retrieved with frame.analogSamples.AD0")
     console.log(frame.analogSamples.AD0)
 
-    const analogValue = frame.analogSamples?.AD0;
-    if (analogValue !== undefined) {
-      handleVerre(analogValue, mqttClient);
-    }
+  const analogValue = frame.analogSamples?.AD0;
+  if (analogValue !== undefined) {
+    handleVerre(analogValue, mqttClient);
+  }
 
   } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
     console.log("REMOTE_COMMAND_RESPONSE")
