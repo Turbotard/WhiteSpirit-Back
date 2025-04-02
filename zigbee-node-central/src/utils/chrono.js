@@ -1,3 +1,6 @@
+const generateRestaurantUrl = require('./sender');
+
+
 module.exports = function handleVerre(analogValue, mqttClient) {
     if (!global.timerState) {
       global.timerState = {
@@ -15,11 +18,14 @@ module.exports = function handleVerre(analogValue, mqttClient) {
         state.verrePresent = true;
         state.currentSeconds = 20;
         console.log("Verre détecté, démarrage du compte à rebours...");
+        const url = generateRestaurantUrl("table", 1, "timer")
+
+        console.log(url)
         mqttClient.publish('capteur/verre', 'present');
   
         state.countdownTimer = setInterval(() => {
           console.log(`⏳ Temps restant : ${state.currentSeconds}s`);
-          mqttClient.publish('capteur/verre/chrono', state.currentSeconds.toString());
+          mqttClient.publish(url, state.currentSeconds.toString());
           state.currentSeconds--;
   
           if (state.currentSeconds < 0) {
