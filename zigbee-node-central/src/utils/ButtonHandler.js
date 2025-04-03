@@ -12,6 +12,7 @@ class ButtonHandler {
     this.xbeeAPI = xbeeAPI;
     this.mqttClient = mqttClient;
     this.isLedOn = false;
+    this.xbeeId = "0013a20041fb6063"; // Store XBee ID for reuse
     
     // Button debounce
     this.lastButtonState = 1; // Initialize to 1 (not pressed) since button is pull-up
@@ -56,7 +57,7 @@ class ButtonHandler {
     console.log(`Direct control: LED ${ledPin} -> ${state}`);
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013a20041fb6063",
+      destination64: this.xbeeId,
       command: ledPin,
       commandParameter: [state],
     };
@@ -71,7 +72,7 @@ class ButtonHandler {
     // Configure D1 as digital output
     const configD1 = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013a20041fb6063",
+      destination64: this.xbeeId,
       command: "D1",
       commandParameter: ["03"], // 03 = Digital Output
     };
@@ -81,7 +82,7 @@ class ButtonHandler {
     // Configure D2 as digital output
     const configD2 = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013a20041fb6063",
+      destination64: this.xbeeId,
       command: "D2",
       commandParameter: ["03"], // 03 = Digital Output
     };
@@ -94,7 +95,7 @@ class ButtonHandler {
     console.log("Turned off LEDs initially");
   }
 
-  // Function to send command to control LED
+  // Function to send command to control LED and publish MQTT
   controlLED(state, ledPin = LED_D1, publishMqtt = true) {
     // This is now ONLY for the button handler
     console.log(`Button controlLED: LED ${ledPin} -> ${state}`);
@@ -104,10 +105,12 @@ class ButtonHandler {
     
     // Only publish MQTT if specified - will ONLY be used by button
     if (publishMqtt && this.mqttClient) {
-      console.log("Publishing message from button press");
-      this.mqttClient.publish('restaurant/tables/{id_table}/button_state', JSON.stringify({
+      console.log("Publishing to ready_to_order topic");
+      this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
         led: ledPin,
-        state: state === LED_ON ? 'on' : 'off'
+        state: state === LED_ON ? 'on' : 'off',
+        xbee_id: this.xbeeId,
+        timestamp: new Date().toISOString()
       }));
     }
   }
@@ -127,8 +130,8 @@ class ButtonHandler {
       // Toggle LED state for D1 only
       this.isLedOn = !this.isLedOn;
       
-      // Direct control LED D1 without any MQTT side effects
-      this.directControlLED(this.isLedOn ? LED_ON : LED_OFF, LED_D1);
+      // Control LED D1 and publish to ready_to_order
+      this.controlLED(this.isLedOn ? LED_ON : LED_OFF, LED_D1, true);
       
       // Reset flag after a delay
       setTimeout(() => {
