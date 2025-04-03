@@ -8,7 +8,7 @@ module.exports = function handleBac(analogValue, mqttClient, capteurId) {
   if (!global.timerStates[capteurId]) {
     global.timerStates[capteurId] = {
       countdownTimer: null,
-      currentSeconds: 10,
+      currentSeconds: 300,
       verrePresent: false,
       compteAReboursTermine: false
     };
@@ -20,7 +20,7 @@ module.exports = function handleBac(analogValue, mqttClient, capteurId) {
   if (analogValue > 200) {
     if (!state.verrePresent && !state.compteAReboursTermine) {
       state.verrePresent = true;
-      state.currentSeconds = 10;
+      state.currentSeconds = 300;
 
       console.log(`✅ ${capteurId} détecté, démarrage du compte à rebours...`);
 
@@ -52,7 +52,7 @@ module.exports = function handleBac(analogValue, mqttClient, capteurId) {
 
       clearInterval(state.countdownTimer);
       state.countdownTimer = null;
-      state.currentSeconds = 10;
+      state.currentSeconds = 300;
       state.verrePresent = false;
       state.compteAReboursTermine = false;
     }
