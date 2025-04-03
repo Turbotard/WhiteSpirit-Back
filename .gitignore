@@ -2,3 +2,4 @@
 .idea
 zigbee-node-central/.yarnrc.yml
 zigbee-node-central/.yarn/install-state.gz
+zigbee-node-central/yarn.lock
