@@ -36,6 +36,10 @@ class ButtonHandler {
         console.log("=== WEB ACTION ===");
         console.log("Received order_ready message (web -> D2)");
         try {
+          // First, always turn off D1 when order_ready is received
+          console.log("First turning off D1 as requested");
+          this.directControlLED(LED_OFF, LED_D1);
+          
           const data = JSON.parse(message.toString());
           // Force LED D2 for order_ready (web actions), regardless of message content
           console.log("Control LED D2 based on web action");
@@ -46,6 +50,8 @@ class ButtonHandler {
           }
         } catch (error) {
           console.error("Error handling order_ready message:", error);
+          // Even on error, turn off D1 and D2
+          this.directControlLED(LED_OFF, LED_D1);
           this.directControlLED(LED_OFF, LED_D2);
         }
       }
