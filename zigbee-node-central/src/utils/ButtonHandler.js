@@ -24,117 +24,91 @@ class ButtonHandler {
     // Configure LED on startup
     this.configureLED();
 
-    // Subscribe to MQTT topics
-    // Topic for web-initiated orders (controls D2)
-    this.mqttClient.subscribe('restaurant/tables/+/order_ready');
-    // Topic for button-initiated ready signal (controls D1)
-    this.mqttClient.subscribe('restaurant/tables/+/ready_to_order');
+    // COMPLETE REWRITE OF MQTT SUBSCRIPTION LOGIC
     
+    // Subscribe only to order_ready (completely separate from ready_to_order)
+    this.mqttClient.subscribe('restaurant/tables/+/order_ready');
+    
+    // For order_ready messages, ALWAYS and ONLY control D2
     this.mqttClient.on('message', (topic, message) => {
-      if (topic.includes('order_ready') && !this.processingOrderReady) {
-        console.log("Received order_ready message from web");
-        this.handleOrderReady(topic, message);
-      } else if (topic.includes('ready_to_order') && !this.processingReadyToOrder) {
-        console.log("Received ready_to_order message from button");
-        this.handleReadyToOrder(topic, message);
+      if (topic.includes('order_ready')) {
+        console.log("=== WEB ACTION ===");
+        console.log("Received order_ready message (web -> D2)");
+        try {
+          const data = JSON.parse(message.toString());
+          // Force LED D2 for order_ready (web actions), regardless of message content
+          console.log("Control LED D2 based on web action");
+          if (data.state === 'on') {
+            this.directControlLED(LED_ON, LED_D2);
+          } else {
+            this.directControlLED(LED_OFF, LED_D2);
+          }
+        } catch (error) {
+          console.error("Error handling order_ready message:", error);
+          this.directControlLED(LED_OFF, LED_D2);
+        }
       }
     });
   }
-
-  // Configure LED on startup
-  configureLED() {
-    console.log("Configuring LED D1...");
-    
-    // Configure D1 as digital output
-    const configFrame = {
-      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: "0013a20041fb6063",
-      command: "D1",
-      commandParameter: ["03"], // 03 = Digital Output
-    };
-    this.xbeeAPI.builder.write(configFrame);
-    console.log("Sent D1 configuration");
-
-    // Turn off LED initially
-    this.controlLED(LED_OFF);
-    console.log("Turned off LED initially");
-  }
-
-  // Function to send command to control LED
-  controlLED(state, ledPin = LED_D1, publishMqtt = true) {
-    console.log(`Sending command: LED ${ledPin} -> ${state}`);
+  
+  // Direct control of LED without any MQTT side effects
+  directControlLED(state, ledPin) {
+    console.log(`Direct control: LED ${ledPin} -> ${state}`);
     const frame_obj = {
       type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
       destination64: "0013a20041fb6063",
       command: ledPin,
       commandParameter: [state],
     };
-    console.log("Frame object:", JSON.stringify(frame_obj, null, 2));
     this.xbeeAPI.builder.write(frame_obj);
-    console.log("Command sent to XBee");
+    console.log(`Command sent to XBee to control ${ledPin}`);
+  }
+
+  // Configure LED on startup
+  configureLED() {
+    console.log("Configuring LED D1 and D2...");
     
-    // Only publish MQTT if specified
+    // Configure D1 as digital output
+    const configD1 = {
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: "0013a20041fb6063",
+      command: "D1",
+      commandParameter: ["03"], // 03 = Digital Output
+    };
+    this.xbeeAPI.builder.write(configD1);
+    console.log("Sent D1 configuration");
+    
+    // Configure D2 as digital output
+    const configD2 = {
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: "0013a20041fb6063",
+      command: "D2",
+      commandParameter: ["03"], // 03 = Digital Output
+    };
+    this.xbeeAPI.builder.write(configD2);
+    console.log("Sent D2 configuration");
+
+    // Turn off LEDs initially
+    this.directControlLED(LED_OFF, LED_D1);
+    this.directControlLED(LED_OFF, LED_D2);
+    console.log("Turned off LEDs initially");
+  }
+
+  // Function to send command to control LED
+  controlLED(state, ledPin = LED_D1, publishMqtt = true) {
+    // This is now ONLY for the button handler
+    console.log(`Button controlLED: LED ${ledPin} -> ${state}`);
+    
+    // Direct control without MQTT loops
+    this.directControlLED(state, ledPin);
+    
+    // Only publish MQTT if specified - will ONLY be used by button
     if (publishMqtt && this.mqttClient) {
-      this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
+      console.log("Publishing message from button press");
+      this.mqttClient.publish('restaurant/tables/{id_table}/button_state', JSON.stringify({
         led: ledPin,
         state: state === LED_ON ? 'on' : 'off'
       }));
-    }
-  }
-
-  // Handle order_ready message (from web, controls D2)
-  handleOrderReady(topic, message) {
-    console.log("Handling order_ready message (web -> D2)");
-    try {
-      // Set flag to prevent loops
-      this.processingOrderReady = true;
-      
-      const data = JSON.parse(message.toString());
-      console.log("Message data:", data);
-      
-      // Always use D2 for order_ready messages
-      if (data.state === 'on') {
-        this.controlLED(LED_ON, LED_D2);
-      } else {
-        this.controlLED(LED_OFF, LED_D2);
-      }
-      
-      // Reset flag after processing
-      setTimeout(() => {
-        this.processingOrderReady = false;
-      }, 500);
-    } catch (error) {
-      console.error("Error parsing order_ready message:", error);
-      this.controlLED(LED_OFF, LED_D2);
-      this.processingOrderReady = false;
-    }
-  }
-
-  // Handle ready_to_order message (from button, controls D1)
-  handleReadyToOrder(topic, message) {
-    console.log("Handling ready_to_order message (button -> D1)");
-    try {
-      // Set flag to prevent loops
-      this.processingReadyToOrder = true;
-      
-      const data = JSON.parse(message.toString());
-      console.log("Message data:", data);
-      
-      // Always use D1 for ready_to_order messages
-      if (data.state === 'on') {
-        this.controlLED(LED_ON, LED_D1, false); // Don't publish MQTT in controlLED
-      } else {
-        this.controlLED(LED_OFF, LED_D1, false); // Don't publish MQTT in controlLED
-      }
-      
-      // Reset flag after processing
-      setTimeout(() => {
-        this.processingReadyToOrder = false;
-      }, 500);
-    } catch (error) {
-      console.error("Error parsing ready_to_order message:", error);
-      this.controlLED(LED_OFF, LED_D1, false);
-      this.processingReadyToOrder = false;
     }
   }
 
@@ -144,32 +118,21 @@ class ButtonHandler {
     
     // Detect button press (transition from 1 to 0)
     if (buttonState === 0 && this.lastButtonState === 1 && !this.buttonPressed) {
-      console.log("Button pressed - toggling LED D1 only");
+      console.log("=== BUTTON ACTION ===");
+      console.log("Physical button pressed - controlling ONLY LED D1");
       
       // Set flag to prevent multiple presses
       this.buttonPressed = true;
       
-      // Toggle LED state
+      // Toggle LED state for D1 only
       this.isLedOn = !this.isLedOn;
       
-      // Set flag to prevent loops
-      this.processingReadyToOrder = true;
-      
-      // Control LED D1 directly without publishing MQTT
-      this.controlLED(this.isLedOn ? LED_ON : LED_OFF, LED_D1, false);
-      
-      // Publish to ready_to_order topic only once
-      if (this.mqttClient) {
-        this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
-          led: LED_D1,
-          state: this.isLedOn ? 'on' : 'off'
-        }));
-      }
+      // Direct control LED D1 without any MQTT side effects
+      this.directControlLED(this.isLedOn ? LED_ON : LED_OFF, LED_D1);
       
       // Reset flag after a delay
       setTimeout(() => {
         this.buttonPressed = false;
-        this.processingReadyToOrder = false;
       }, 500);
     }
     
