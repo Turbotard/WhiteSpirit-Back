@@ -11,60 +11,43 @@ const LED_OFF = 0; // 0 = Digital Low (0x00 en hex)
 
 const handleBac = require('./utils/chrono');
 const mqtt = require('mqtt');
+const mqttClient = mqtt.connect('mqtt://test.mosquitto.org');
 const ButtonHandler = require('./utils/ButtonHandler');
 const handleSeat = require('./utils/handleSeatSensor');
 const config = require('./config');
 
-// Validation des variables d'environnement requises
-const requiredEnvVars = [
-  'SERIAL_PORT',
-  'SERIAL_BAUDRATE'
-];
-
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
-if (missingEnvVars.length > 0) {
-  console.error('❌ Variables d\'environnement manquantes:', missingEnvVars.join(', '));
-  console.error('⚠️ Veuillez créer un fichier .env basé sur .env.example');
-  process.exit(1);
-}
-
-// Connexion au broker MQTT
-const mqttClient = mqtt.connect(process.env.MQTT_BROKER_URL || 'mqtt://test.mosquitto.org');
-
 mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
 
-  // Tableau des topics à souscrire
-  const topicsToSubscribe = [
-    'restaurant/tables/+/order_ready',
-    'restaurant/tables/+/ready_to_order'
-  ];
+  // S'abonner aux topics de commande pour toutes les tables
+  mqttClient.subscribe('restaurant/tables/+/order_ready', (err) => {
+    if (err) console.error('Erreur de souscription à order_ready:', err);
+    else console.log('Abonné à restaurant/tables/+/order_ready');
+  });
 
-  // Ajouter les topics de config si définis
-  if (config.mqtt && config.mqtt.topics) {
-    if (config.mqtt.topics.sensorCommand) {
-      topicsToSubscribe.push(config.mqtt.topics.sensorCommand);
-    }
-    if (config.mqtt.topics.moduleControl) {
-      topicsToSubscribe.push(config.mqtt.topics.moduleControl);
-    }
-    if (config.mqtt.topics.moduleStatus) {
-      topicsToSubscribe.push(config.mqtt.topics.moduleStatus);
-    }
+  mqttClient.subscribe('restaurant/tables/+/ready_to_order', (err) => {
+    if (err) console.error('Erreur de souscription à ready_to_order:', err);
+    else console.log('Abonné à restaurant/tables/+/ready_to_order');
+  });
+
+  // S'abonner aux autres topics nécessaires - Ajouter une vérification pour éviter les topics vides
+  if (config.mqtt.topics.sensorCommand) {
+    mqttClient.subscribe(config.mqtt.topics.sensorCommand, (err) => {
+      if (err) console.error('Erreur de souscription au topic sensorCommand:', err);
+      else console.log(`Abonné à ${config.mqtt.topics.sensorCommand}`);
+    });
+  } else {
+    console.log('Avertissement: Le topic sensorCommand n\'est pas configuré dans .env');
   }
 
-  // S'abonner à chaque topic individuellement
-  topicsToSubscribe.forEach(topic => {
-    if (!topic || topic.trim() === '') {
-      console.warn('⚠️ Topic vide ignoré');
-      return;
-    }
-
-    mqttClient.subscribe(topic, (err) => {
-      if (err) console.error(`❌ Erreur de souscription à ${topic}:`, err);
-      else console.log(`✅ Abonné à ${topic}`);
+  if (config.mqtt.topics.moduleControl) {
+    mqttClient.subscribe(config.mqtt.topics.moduleControl, (err) => {
+      if (err) console.error('Erreur de souscription au topic moduleControl:', err);
+      else console.log(`Abonné à ${config.mqtt.topics.moduleControl}`);
     });
-  });
+  } else {
+    console.log('Avertissement: Le topic moduleControl n\'est pas configuré dans .env');
+  }
 
   // Gestionnaire global des messages MQTT
   mqttClient.on('message', (topic, message) => {
