@@ -532,6 +532,27 @@ xbeeAPI.parser.on("data", function (frame) {
   const analogValueAD1 = frame.analogSamples?.AD1;
   const analogValueAD2 = frame.analogSamples?.AD2;
 
+
+  if (analogValueAD0 !== undefined) {
+    console.log("Calling handleBac with AD0 value:", analogValueAD0);
+    handleBac(analogValueAD0, mqttClient, 'AD0');  // Passe un paramètre pour savoir d'où vient la valeur
+  }
+
+  // Si AD1 est défini, appelle la fonction handleBac
+  if (analogValueAD1 !== undefined) {
+    console.log("Calling handleBac with AD1 value:", analogValueAD1);
+    handleBac(analogValueAD1, mqttClient, 'AD1');  // Passe un paramètre pour savoir d'où vient la valeur
+  }
+
+  // Si c'est une commande de réponse, pas besoin d'en faire tout un log
+  if (frame.type === C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE) {
+    // Afficher uniquement les erreurs
+    if (frame.commandStatus !== 0) {
+      console.log(`Erreur commande ${frame.command} sur XBee ${frame.remote64}: status ${frame.commandStatus}`);
+    }
+    return;
+  }
+
   // Handle button state changes if frame is from a recognized XBee
   if (frame.type === xbee_api.constants.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX) {
     // Si on a un XBee mais que l'ID XBee n'est pas encore dans les associations
