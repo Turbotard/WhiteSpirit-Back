@@ -121,8 +121,16 @@ class ButtonHandler {
     
     // Only publish MQTT if specified - will ONLY be used by button
     if (publishMqtt && this.mqttClient) {
-      console.log("Publishing to ready_to_order topic");
-      this.mqttClient.publish('restaurant/tables/{id_table}/ready_to_order', JSON.stringify({
+      // Determine the correct topic based on which LED
+      let topic = 'restaurant/tables/1/';
+      if (ledPin === LED_D1) {
+        topic += 'ready_to_order';
+      } else if (ledPin === LED_D2) {
+        topic += 'order_ready';
+      }
+      
+      console.log(`Publishing to ${topic}`);
+      this.mqttClient.publish(topic, JSON.stringify({
         led: ledPin,
         state: state === LED_ON ? 'on' : 'off',
         xbee_id: this.xbeeId,
