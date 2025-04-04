@@ -40,6 +40,12 @@ class ButtonHandler {
           console.log("First turning off D1 as requested");
           this.directControlLED(LED_OFF, LED_D1);
           
+          // Reset LED state since D1 is now off
+          this.isLedOn = false;
+          // Set lastButtonState to 1 (released) so next press is detected immediately
+          this.lastButtonState = 1;
+          console.log("Reset LED state (isLedOn=false) and lastButtonState=1 for immediate next detection");
+          
           const data = JSON.parse(message.toString());
           // Force LED D2 for order_ready (web actions), regardless of message content
           console.log("Control LED D2 based on web action");
@@ -53,6 +59,10 @@ class ButtonHandler {
           // Even on error, turn off D1 and D2
           this.directControlLED(LED_OFF, LED_D1);
           this.directControlLED(LED_OFF, LED_D2);
+          // Reset LED state
+          this.isLedOn = false;
+          // Set lastButtonState to 1 (released)
+          this.lastButtonState = 1;
         }
       }
     });
