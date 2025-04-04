@@ -12,13 +12,118 @@ const config = require('./config');
 mqttClient.on('connect', () => {
   console.log('✅ Connecté au broker MQTT');
 
-  // S'abonner aux topics de commande
+  // S'abonner aux topics de commande pour toutes les tables
+  mqttClient.subscribe('restaurant/tables/+/order_ready', (err) => {
+    if (err) console.error('Erreur de souscription à order_ready:', err);
+    else console.log('Abonné à restaurant/tables/+/order_ready');
+  });
+  
+  mqttClient.subscribe('restaurant/tables/+/ready_to_order', (err) => {
+    if (err) console.error('Erreur de souscription à ready_to_order:', err);
+    else console.log('Abonné à restaurant/tables/+/ready_to_order');
+  });
+
+  // S'abonner aux autres topics nécessaires
   mqttClient.subscribe(config.mqtt.topics.sensorCommand, (err) => {
     if (err) console.error('Erreur de souscription:', err);
   });
 
   mqttClient.subscribe(config.mqtt.topics.moduleControl, (err) => {
     if (err) console.error('Erreur de souscription:', err);
+  });
+  
+  // Gestionnaire global des messages MQTT
+  mqttClient.on('message', (topic, message) => {
+    try {
+      // Extraire l'ID de table du topic
+      let tableId = null;
+      
+      if (topic.startsWith('restaurant/tables/')) {
+        const parts = topic.split('/');
+        if (parts.length >= 3) {
+          tableId = parseInt(parts[2], 10);
+        }
+      }
+      
+      // Si on a un ID de table valide
+      if (tableId) {
+        try {
+          const data = JSON.parse(message.toString());
+          
+          // Vérifier si le message contient explicitement un ID de table différent
+          const messageTableId = data.table || tableId;
+          
+          // Si le messageTableId est différent de tableId, utiliser celui du message
+          if (messageTableId !== tableId) {
+            tableId = messageTableId;
+          }
+          
+          // Récupérer le XBee correspondant à cette table
+          const xbeeConfig = XBEE_CONFIGS.find(cfg => cfg.tableId === tableId);
+          
+          if (!xbeeConfig) {
+            console.log(`Aucun XBee configuré pour la Table ${tableId}`);
+            return;
+          }
+          
+          // Vérifier si on a déjà un gestionnaire pour cette table
+          if (!global.buttonHandlers || !global.buttonHandlers[tableId]) {
+            // Initialiser le handler
+            if (!global.buttonHandlers) {
+              global.buttonHandlers = {};
+            }
+            
+            global.buttonHandlers[tableId] = new ButtonHandler(xbeeAPI, mqttClient);
+            global.buttonHandlers[tableId].tableId = tableId;
+            global.buttonHandlers[tableId].xbeeId = xbeeConfig.id;
+          } else {
+            // S'assurer que le handler existant utilise le bon XBee ID
+            global.buttonHandlers[tableId].xbeeId = xbeeConfig.id;
+          }
+          
+          // Traiter le message selon le type
+          if (topic.endsWith('order_ready')) {
+            console.log(`Ordre prêt reçu - Table ${tableId} - État: ${data.state}`);
+            
+            // Contrôle de la LED D2 (et réinitialisation de D1) pour order_ready
+            if (data.state === 'on') {
+              // Éteindre D1 d'abord (reset)
+              global.buttonHandlers[tableId].directControlLED(LED_OFF, LED_D1);
+              // Allumer D2
+              global.buttonHandlers[tableId].directControlLED(LED_ON, LED_D2);
+            } else {
+              // Éteindre D1 d'abord (reset)
+              global.buttonHandlers[tableId].directControlLED(LED_OFF, LED_D1);
+              // Éteindre D2
+              global.buttonHandlers[tableId].directControlLED(LED_OFF, LED_D2);
+            }
+            
+            // Reset de l'état du bouton pour le prochain appui
+            global.buttonHandlers[tableId].isLedOn = false;
+            global.buttonHandlers[tableId].lastButtonState = 1;
+          }
+          else if (topic.endsWith('ready_to_order')) {
+            console.log(`Prêt à commander reçu - Table ${tableId} - État: ${data.state}`);
+            
+            // Contrôle de la LED D1 pour ready_to_order
+            if (data.state === 'on') {
+              global.buttonHandlers[tableId].directControlLED(LED_ON, LED_D1);
+            } else {
+              global.buttonHandlers[tableId].directControlLED(LED_OFF, LED_D1);
+            }
+          }
+        } catch (error) {
+          console.error(`Erreur de traitement du message pour Table ${tableId}:`, error.message);
+        }
+      }
+      // Autres types de messages MQTT
+      else if (topic === config.mqtt.topics.moduleControl) {
+        console.log("Message de contrôle de module reçu");
+        // Traitement des messages de contrôle de module
+      }
+    } catch (error) {
+      console.error('Erreur de traitement du message MQTT:', error.message);
+    }
   });
 });
 
@@ -31,9 +136,9 @@ if (!process.env.SERIAL_BAUDRATE)
 // Replace with your serial port and baud rate (9600 by default)
 const SERIAL_PORT = process.env.SERIAL_PORT;
 
-// Ensure to configure your XBEE Module in API MODE 2
+// Ensure to configure your XBEE Module in API MODE 2 (comme indiqué dans le commentaire original)
 var xbeeAPI = new xbee_api.XBeeAPI({
-  api_mode: 2
+  api_mode: 2  // Changer de 1 à 2 pour correspondre au mode API des XBee
 });
 
 let serialport = new SerialPort(SERIAL_PORT, {
@@ -51,127 +156,209 @@ xbeeAPI.builder.pipe(serialport);
 const buttonHandler = new ButtonHandler(xbeeAPI, mqttClient);
 
 const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
+
+// Configuration des XBee
+const XBEE_CONFIGS = [
+  {
+    id: "0013a20041fb6063",
+    tableId: 1,
+    description: "Table 1"
+  },
+  {
+    id: "0013a20041a72946",
+    tableId: 2,
+    description: "Table 2"
+  }
+];
+
+// Fonction pour obtenir l'ID de table à partir de l'adresse MAC XBee
+function getTableIdFromXbeeId(xbeeId) {
+  if (!xbeeId) return null;
+  
+  // Normaliser l'ID en minuscules pour la comparaison
+  const normalizedId = xbeeId.toLowerCase();
+  
+  // Chercher la configuration correspondante
+  const config = XBEE_CONFIGS.find(cfg => cfg.id.toLowerCase() === normalizedId);
+  
+  return config ? config.tableId : null;
+}
+
+// Fonction pour obtenir toutes les adresses MAC des XBee configurés
+function getAllXbeeIds() {
+  return XBEE_CONFIGS.map(cfg => cfg.id);
+}
+
 serialport.on("open", function () {
   console.log("Serial port opened successfully");
   
-  // Configurer D0 comme entrée numérique avec pull-up (mode 3)
-  var configD0 = {
-    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-    destination64: "0013a20041fb6063", // L'adresse MAC de votre XBee cible
-    command: "D0",
-    commandParameter: [0x03], // 03 = Digital Input avec pull-up
-  };
-  xbeeAPI.builder.write(configD0);
-  console.log("Sent D0 configuration command");
+  // Fonction pour envoyer des commandes AT avec un délai entre elles
+  function sendATCommandWithDelay(commands, index = 0) {
+    if (index >= commands.length) {
+      return;
+    }
+    
+    const command = commands[index];
+    xbeeAPI.builder.write(command);
+    
+    // Attendre 500ms avant d'envoyer la commande suivante
+    setTimeout(() => {
+      sendATCommandWithDelay(commands, index + 1);
+    }, 300);
+  }
   
-  // Configurer l'échantillonnage IO pour l'entrée numérique D0
-  var configIR = {
-    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-    destination64: "0013a20041fb6063", // L'adresse MAC de votre XBee cible
-    command: "IR",
-    commandParameter: [0x03, 0xE8], // 0x03E8 = 1000ms (échantillonnage toutes les secondes)
-  };
-  xbeeAPI.builder.write(configIR);
-  console.log("Sent IR (sample rate) configuration command");
+  // Préparer les commandes pour tous les XBee
+  const allCommands = [];
+  
+  XBEE_CONFIGS.forEach(xbeeConfig => {
+    console.log(`Preparing configuration for ${xbeeConfig.description} (${xbeeConfig.id})`);
+    
+    // Configurer D0 comme entrée numérique avec pull-up (mode 3)
+    allCommands.push({
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: xbeeConfig.id,
+      command: "D0",
+      commandParameter: [3], // 3 = Digital Input avec pull-up
+    });
+    
+    // Configurer la détection de changement (IC)
+    allCommands.push({
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: xbeeConfig.id,
+      command: "IC",
+      commandParameter: [1], // Activer la détection de changement sur D0
+    });
+    
+    // Désactiver l'échantillonnage périodique
+    allCommands.push({
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: xbeeConfig.id,
+      command: "IR", 
+      commandParameter: [0, 0], // Désactiver l'échantillonnage périodique
+    });
+    
+    // Sauvegarder et appliquer les paramètres
+    allCommands.push({
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: xbeeConfig.id,
+      command: "AC", // Apply Changes
+      commandParameter: [],
+    });
+  });
+  
+  // Envoyer les commandes
+  sendATCommandWithDelay(allCommands);
 
-  //Sample local command to ask local Xbee module the value of NODE IDENTIFIER
-  var frame_obj = { // AT Request to be sent
-    type: C.FRAME_TYPE.AT_COMMAND,
-    command: "NI",
-    commandParameter: [],
-  };
-
-  xbeeAPI.builder.write(frame_obj);
-
-  //Sample remote command to ask all remote Xbee modules the value of their NODE IDENTIFIER
-  frame_obj = { // AT Request to be sent
-    type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-    destination64: BROADCAST_ADDRESS,
-    command: "NI",
-    commandParameter: [],
-  };
-  xbeeAPI.builder.write(frame_obj);
+  // Identifier tous les modules XBee après un délai
+  setTimeout(() => {
+    var localNI = {
+      type: C.FRAME_TYPE.AT_COMMAND,
+      command: "NI",
+      commandParameter: [],
+    };
+    xbeeAPI.builder.write(localNI);
+    
+    var remoteNI = {
+      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+      destination64: BROADCAST_ADDRESS,
+      command: "NI",
+      commandParameter: [],
+    };
+    xbeeAPI.builder.write(remoteNI);
+  }, 5000); // 5 secondes après l'initialisation
 });
 
 // All frames parsed by the XBee will be emitted here
 xbeeAPI.parser.on("data", function (frame) {
-  // Log frame source if available
+  // Ne pas afficher tous les types de trames, seulement les informations importantes
+  
+  // Obtenir l'ID de table à partir de l'adresse XBee (si disponible)
+  let tableId = null;
   if (frame.remote64) {
-    console.log(`Received frame from: ${frame.remote64}`);
+    tableId = getTableIdFromXbeeId(frame.remote64);
   }
 
-  // on new device is joined, register it
-  if (C.FRAME_TYPE.JOIN_NOTIFICATION_STATUS === frame.type) {
-    console.log("New device has joined network, you can register new device available");
+  // Si c'est une commande de réponse, pas besoin d'en faire tout un log
+  if (frame.type === C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE) {
+    // Afficher uniquement les erreurs
+    if (frame.commandStatus !== 0) {
+      console.log(`Erreur commande ${frame.command} sur XBee ${frame.remote64}: status ${frame.commandStatus}`);
+    }
+    return;
   }
 
-  if (C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET === frame.type) {
-    console.log("C.FRAME_TYPE.ZIGBEE_RECEIVE_PACKET");
-    let dataReceived = String.fromCharCode.apply(null, frame.data);
-    console.log(">> ZIGBEE_RECEIVE_PACKET >", dataReceived);
-  }
-
-  if (C.FRAME_TYPE.NODE_IDENTIFICATION === frame.type) {
-    console.log("NODE_IDENTIFICATION");
-  } else if (C.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX === frame.type) {
-    console.log("ZIGBEE_IO_DATA_SAMPLE_RX");
-    console.log(frame);
-
-    // Vérifier si c'est notre appareil spécifique
-    const TARGET_XBEE_ID = "0013a20041fb6063";
-    
-    if (frame.remote64 && frame.remote64.toLowerCase() === TARGET_XBEE_ID.toLowerCase()) {
-      console.log(`Received frame from our target XBee: ${frame.remote64}`);
+  // Handle button state changes if frame is from a recognized XBee
+  if (frame.type === xbee_api.constants.FRAME_TYPE.ZIGBEE_IO_DATA_SAMPLE_RX) {
+    // Vérifier si c'est un de nos appareils XBee configurés
+    if (frame.remote64 && tableId) {
+      // Récupérer la configuration de ce XBee
+      const xbeeConfig = XBEE_CONFIGS.find(cfg => cfg.id.toLowerCase() === frame.remote64.toLowerCase());
+      if (!xbeeConfig) {
+        return;
+      }
       
-      // Récupérer la valeur de AD0 et AD1
-      const analogValueAD0 = frame.analogSamples?.AD0;
-      const analogValueAD1 = frame.analogSamples?.AD1;
-
-      // Si AD0 est défini, appelle la fonction handleBac
-      if (analogValueAD0 !== undefined) {
-        console.log("AD0 Value:", analogValueAD0);
-        handleBac(analogValueAD0, mqttClient, 'AD0'); // Passe un paramètre pour savoir d'où vient la valeur
+      // Récupérer l'ID de table de la configuration
+      const configTableId = xbeeConfig.tableId;
+      if (configTableId !== tableId) {
+        tableId = configTableId;
       }
-
-      // Si AD1 est défini, appelle la fonction handleBac
-      if (analogValueAD1 !== undefined) {
-        console.log("AD1 Value:", analogValueAD1);
-        handleBac(analogValueAD1, mqttClient, 'AD1'); // Passe un paramètre pour savoir d'où vient la valeur
-      }
-
+      
       // Handle button state depending on whether we're looking for D0 or DIO0
       // Check both possibilities (some XBee modules report as D0, others as DIO0)
       let buttonState;
       if (frame.digitalSamples && frame.digitalSamples.D0 !== undefined) {
         buttonState = frame.digitalSamples.D0;
-        console.log("Button state from D0:", buttonState);
-        buttonHandler.handleButtonState(buttonState);
+        if (buttonState === 0) { // Seulement log quand le bouton est appuyé
+          console.log(`🔘 BOUTON APPUYÉ - Table ${tableId}`);
+        }
+        handleButtonForTable(buttonState, tableId, frame.remote64);
       } 
       else if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
         buttonState = frame.digitalSamples.DIO0;
-        console.log("Button state from DIO0:", buttonState);
-        buttonHandler.handleButtonState(buttonState);
+        if (buttonState === 0) { // Seulement log quand le bouton est appuyé
+          console.log(`🔘 BOUTON APPUYÉ - Table ${tableId}`);
+        }
+        handleButtonForTable(buttonState, tableId, frame.remote64);
       }
-      else {
-        console.log("No button state found in this frame");
-      }
-    } else {
-      console.log(`Ignoring frame from non-target XBee: ${frame.remote64 || 'unknown'}`);
-    }
-  } else if (C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE === frame.type) {
-    console.log("REMOTE_COMMAND_RESPONSE");
-    
-    // Vérifier si c'est notre appareil cible qui répond
-    const TARGET_XBEE_ID = "0013a20041fb6063";
-    if (frame.remote64 && frame.remote64.toLowerCase() === TARGET_XBEE_ID.toLowerCase()) {
-      console.log(`Received command response from our target XBee: ${frame.remote64}`);
-      console.log(`Command: ${frame.command}, Status: ${frame.commandStatus}`);
-    }
-  } else {
-    console.debug(frame);
-    if (frame.commandData) {
-      let dataReceived = String.fromCharCode.apply(null, frame.commandData);
-      console.log(dataReceived);
     }
   }
 });
+
+// Fonction pour gérer l'état du bouton en fonction de la table
+function handleButtonForTable(buttonState, tableId, xbeeId) {
+  // Si table inconnue, ne rien faire
+  if (!tableId) return;
+  
+  // Récupérer la configuration XBee correspondant à cette table
+  const xbeeConfig = XBEE_CONFIGS.find(cfg => cfg.tableId === tableId);
+  if (!xbeeConfig) {
+    console.log(`Aucun XBee configuré pour la Table ${tableId}`);
+    return;
+  }
+  
+  // Créer un buttonHandler spécifique à la table si nécessaire
+  if (!global.buttonHandlers) {
+    global.buttonHandlers = {};
+  }
+  
+  if (!global.buttonHandlers[tableId]) {
+    console.log(`Initialisation du ButtonHandler pour la Table ${tableId}`);
+    global.buttonHandlers[tableId] = new ButtonHandler(xbeeAPI, mqttClient);
+    
+    // Stocker l'ID de table pour les publications MQTT
+    global.buttonHandlers[tableId].tableId = tableId;
+    
+    // IMPORTANT: Utiliser l'ID XBee correspondant à cette table
+    global.buttonHandlers[tableId].xbeeId = xbeeConfig.id;
+    console.log(`Table ${tableId} associée au XBee: ${xbeeConfig.id}`);
+  }
+  
+  // Utiliser le ButtonHandler spécifique à cette table
+  global.buttonHandlers[tableId].handleButtonState(buttonState, xbeeId);
+}
+
+// Définition des constantes LED pour le scope global
+const LED_D1 = "D1";
+const LED_D2 = "D2";
+const LED_ON = 4;  // 4 = Digital High (0x04 en hex)
+const LED_OFF = 0; // 0 = Digital Low (0x00 en hex)

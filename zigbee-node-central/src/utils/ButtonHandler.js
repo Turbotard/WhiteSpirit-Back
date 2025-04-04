@@ -4,15 +4,16 @@ const C = xbee_api.constants;
 // LED Control constants
 const LED_D1 = "D1";
 const LED_D2 = "D2";
-const LED_ON = "04";
-const LED_OFF = "00";
+const LED_ON = 4;  // 4 = Digital High (0x04 en hex)
+const LED_OFF = 0; // 0 = Digital Low (0x00 en hex)
 
 class ButtonHandler {
   constructor(xbeeAPI, mqttClient) {
     this.xbeeAPI = xbeeAPI;
     this.mqttClient = mqttClient;
     this.isLedOn = false;
-    this.xbeeId = "0013a20041fb6063"; // Store XBee ID for reuse
+    this.xbeeId = "0013a20041fb6063"; // Default XBee ID
+    this.tableId = 1; // Default table ID, sera remplacé par la fonction handleButtonForTable
     
     // Button debounce
     this.lastButtonState = 1; // Initialize to 1 (not pressed) since button is pull-up
@@ -23,115 +24,92 @@ class ButtonHandler {
     this.processingOrderReady = false;
 
     // Configure LED on startup
-    this.configureLED();
+    if (this.xbeeAPI) {
+      this.configureLED();
+    }
 
-    // COMPLETE REWRITE OF MQTT SUBSCRIPTION LOGIC
-    
-    // Subscribe only to order_ready (completely separate from ready_to_order)
-    this.mqttClient.subscribe('restaurant/tables/+/order_ready');
-    
-    // For order_ready messages, ALWAYS and ONLY control D2
-    this.mqttClient.on('message', (topic, message) => {
-      if (topic.includes('order_ready')) {
-        console.log("=== WEB ACTION ===");
-        console.log("Received order_ready message (web -> D2)");
-        try {
-          // First, always turn off D1 when order_ready is received
-          console.log("First turning off D1 as requested");
-          this.directControlLED(LED_OFF, LED_D1);
-          
-          // Reset LED state since D1 is now off
-          this.isLedOn = false;
-          // Set lastButtonState to 1 (released) so next press is detected immediately
-          this.lastButtonState = 1;
-          console.log("Reset LED state (isLedOn=false) and lastButtonState=1 for immediate next detection");
-          
-          const data = JSON.parse(message.toString());
-          // Force LED D2 for order_ready (web actions), regardless of message content
-          console.log("Control LED D2 based on web action");
-          if (data.state === 'on') {
-            this.directControlLED(LED_ON, LED_D2);
-          } else {
-            this.directControlLED(LED_OFF, LED_D2);
-          }
-        } catch (error) {
-          console.error("Error handling order_ready message:", error);
-          // Even on error, turn off D1 and D2
-          this.directControlLED(LED_OFF, LED_D1);
-          this.directControlLED(LED_OFF, LED_D2);
-          // Reset LED state
-          this.isLedOn = false;
-          // Set lastButtonState to 1 (released)
-          this.lastButtonState = 1;
-        }
-      }
-    });
+    // Ne plus s'abonner aux topics ici car c'est géré au niveau global
+    // Également, ne plus traiter les messages MQTT ici pour éviter les doublons
   }
   
   // Direct control of LED without any MQTT side effects
   directControlLED(state, ledPin) {
-    console.log(`Direct control: LED ${ledPin} -> ${state}`);
-    const frame_obj = {
-      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: this.xbeeId,
-      command: ledPin,
-      commandParameter: [state],
-    };
-    this.xbeeAPI.builder.write(frame_obj);
-    console.log(`Command sent to XBee to control ${ledPin}`);
+    // Supprimer les logs excessifs
+    if (!this.xbeeAPI) {
+      return;
+    }
+    
+    try {
+      const frame_obj = {
+        type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+        destination64: this.xbeeId,
+        command: ledPin,
+        commandParameter: [state],
+      };
+      this.xbeeAPI.builder.write(frame_obj);
+    } catch (error) {
+      console.error(`Table ${this.tableId}: Error sending LED command:`, error);
+    }
   }
 
   // Configure LED on startup
   configureLED() {
-    console.log("Configuring LED D1 and D2...");
-    
-    // Configure D1 as digital output
-    const configD1 = {
-      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: this.xbeeId,
-      command: "D1",
-      commandParameter: ["03"], // 03 = Digital Output
-    };
-    this.xbeeAPI.builder.write(configD1);
-    console.log("Sent D1 configuration");
-    
-    // Configure D2 as digital output
-    const configD2 = {
-      type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
-      destination64: this.xbeeId,
-      command: "D2",
-      commandParameter: ["03"], // 03 = Digital Output
-    };
-    this.xbeeAPI.builder.write(configD2);
-    console.log("Sent D2 configuration");
+    // Version simplifiée sans logs excessifs
+    try {
+      // Configure D1 as digital output (mode 4 = Digital Out, Low)
+      const configD1 = {
+        type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+        destination64: this.xbeeId,
+        command: "D1",
+        commandParameter: [4],
+      };
+      this.xbeeAPI.builder.write(configD1);
+      
+      // Configure D2 as digital output (mode 4 = Digital Out, Low)
+      const configD2 = {
+        type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+        destination64: this.xbeeId,
+        command: "D2",
+        commandParameter: [4],
+      };
+      this.xbeeAPI.builder.write(configD2);
 
-    // Turn off LEDs initially
-    this.directControlLED(LED_OFF, LED_D1);
-    this.directControlLED(LED_OFF, LED_D2);
-    console.log("Turned off LEDs initially");
+      // Appliquer les changements
+      const applyChanges = {
+        type: C.FRAME_TYPE.REMOTE_AT_COMMAND_REQUEST,
+        destination64: this.xbeeId,
+        command: "AC",
+        commandParameter: [],
+      };
+      this.xbeeAPI.builder.write(applyChanges);
+
+      // Éteindre les LEDs
+      this.directControlLED(LED_OFF, LED_D1);
+      this.directControlLED(LED_OFF, LED_D2);
+    } catch (error) {
+      console.error(`Table ${this.tableId}: Error configuring LEDs:`, error);
+    }
   }
 
   // Function to send command to control LED and publish MQTT
   controlLED(state, ledPin = LED_D1, publishMqtt = true) {
-    // This is now ONLY for the button handler
-    console.log(`Button controlLED: LED ${ledPin} -> ${state}`);
-    
     // Direct control without MQTT loops
     this.directControlLED(state, ledPin);
     
     // Only publish MQTT if specified - will ONLY be used by button
     if (publishMqtt && this.mqttClient) {
       // Determine the correct topic based on which LED
-      let topic = 'restaurant/tables/1/';
+      let topic = `restaurant/tables/${this.tableId}/`;
       if (ledPin === LED_D1) {
         topic += 'ready_to_order';
       } else if (ledPin === LED_D2) {
         topic += 'order_ready';
       }
       
-      console.log(`Publishing to ${topic}`);
       this.mqttClient.publish(topic, JSON.stringify({
+        table: this.tableId,
         led: ledPin,
+        // Convertir les valeurs numériques 4/0 en 'on'/'off' pour MQTT
         state: state === LED_ON ? 'on' : 'off',
         xbee_id: this.xbeeId,
         timestamp: new Date().toISOString()
@@ -140,14 +118,14 @@ class ButtonHandler {
   }
 
   // Handle button state change
-  handleButtonState(buttonState) {
-    console.log(`Button state: ${buttonState}, Last state: ${this.lastButtonState}`);
+  handleButtonState(buttonState, sourceXbeeId) {
+    // Si un ID XBee source est fourni, vérifier qu'il correspond à notre XBee
+    if (sourceXbeeId && sourceXbeeId.toLowerCase() !== this.xbeeId.toLowerCase()) {
+      return;
+    }
     
     // Detect button press (transition from 1 to 0)
     if (buttonState === 0 && this.lastButtonState === 1 && !this.buttonPressed) {
-      console.log("=== BUTTON ACTION ===");
-      console.log("Physical button pressed - controlling ONLY LED D1");
-      
       // Set flag to prevent multiple presses
       this.buttonPressed = true;
       
