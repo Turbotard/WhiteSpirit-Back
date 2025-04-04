@@ -33,7 +33,7 @@ module.exports = function handleSeatSensor(analogSamples, mqttClient, capteurId)
       state.isSeated = false;
       console.log(`❌ ${capteurId} détecte que la personne s'est levée.`);
 
-      mqttClient.publish(generateRestaurantUrl("seat", seatId, "occupied"), "false");
+      mqttClient.publish(generateRestaurantUrl("tables", seatId, "occupied"), "false");
     }
   }
 }
