@@ -1,0 +1,17 @@
+{
+  "tableAssociations": {
+    "0013a20041a72946": {
+      "tableId": 1,
+      "nodeIdentifier": "",
+      "description": "Table 1",
+      "lastSeen": "2025-04-04T10:13:51.231Z"
+    },
+    "0013a20041fb6063": {
+      "tableId": 2,
+      "nodeIdentifier": "",
+      "description": "Table 2",
+      "lastSeen": "2025-04-04T10:13:55.261Z"
+    }
+  },
+  "nextTableId": 3
+}
