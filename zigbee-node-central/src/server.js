@@ -7,6 +7,7 @@ const handleBac = require('./utils/chrono');
 const mqtt = require('mqtt');
 const mqttClient = mqtt.connect('mqtt://test.mosquitto.org');
 const ButtonHandler = require('./utils/ButtonHandler');
+const handleSeat = require('./utils/handleSeatSensor');
 const config = require('./config');
 
 mqttClient.on('connect', () => {
@@ -93,6 +94,7 @@ xbeeAPI.parser.on("data", function (frame) {
     // Récupérer la valeur de AD0 et AD1
     const analogValueAD0 = frame.analogSamples?.AD0;
     const analogValueAD1 = frame.analogSamples?.AD1;
+    const analogValueAD2 = frame.analogSamples?.AD2;
 
     // Si AD0 est défini, appelle la fonction handleBac
     if (analogValueAD0 !== undefined) {
@@ -104,6 +106,11 @@ xbeeAPI.parser.on("data", function (frame) {
     if (analogValueAD1 !== undefined) {
       console.log("AD1 Value:", analogValueAD1);
       handleBac(analogValueAD1, mqttClient, 'AD1'); // Passe un paramètre pour savoir d'où vient la valeur
+    }
+
+    if (analogValueAD2 !== undefined) {
+      console.log("AD2 Value: ", analogValueAD2)
+      handleSeat(analogValueAD2, mqttClient, 'AD2')
     }
 
     // Handle button state if DIO0 is present
