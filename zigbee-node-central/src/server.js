@@ -3,6 +3,12 @@ var xbee_api = require('xbee-api');
 var C = xbee_api.constants;
 require('dotenv').config()
 
+// Définition des constantes LED pour le scope global
+const LED_D1 = "D1";
+const LED_D2 = "D2";
+const LED_ON = 4;  // 4 = Digital High (0x04 en hex)
+const LED_OFF = 0; // 0 = Digital Low (0x00 en hex)
+
 const handleBac = require('./utils/chrono');
 const mqtt = require('mqtt');
 const mqttClient = mqtt.connect('mqtt://test.mosquitto.org');
@@ -153,8 +159,7 @@ let serialport = new SerialPort(SERIAL_PORT, {
 serialport.pipe(xbeeAPI.parser);
 xbeeAPI.builder.pipe(serialport);
 
-// Create button handler AFTER xbeeAPI is initialized
-const buttonHandler = new ButtonHandler(xbeeAPI, mqttClient);
+// Ne plus utiliser de buttonHandler global - SUPPRIMÉ
 
 const BROADCAST_ADDRESS = "FFFFFFFFFFFFFFFF";
 
@@ -189,11 +194,6 @@ function getTableIdFromXbeeId(xbeeId) {
 function getAllXbeeIds() {
   return XBEE_CONFIGS.map(cfg => cfg.id);
 }
-
-    // Récupérer la valeur de AD0 et AD1
-    const analogValueAD0 = frame.analogSamples?.AD0;
-    const analogValueAD1 = frame.analogSamples?.AD1;
-    const analogValueAD2 = frame.analogSamples?.AD2;
 
 serialport.on("open", function () {
   console.log("Serial port opened successfully");
@@ -284,6 +284,11 @@ xbeeAPI.parser.on("data", function (frame) {
     tableId = getTableIdFromXbeeId(frame.remote64);
   }
 
+  // Récupérer la valeur des entrées analogiques
+  const analogValueAD0 = frame.analogSamples?.AD0;
+  const analogValueAD1 = frame.analogSamples?.AD1;
+  const analogValueAD2 = frame.analogSamples?.AD2;
+
   // Si c'est une commande de réponse, pas besoin d'en faire tout un log
   if (frame.type === C.FRAME_TYPE.REMOTE_COMMAND_RESPONSE) {
     // Afficher uniquement les erreurs
@@ -326,15 +331,12 @@ xbeeAPI.parser.on("data", function (frame) {
         }
         handleButtonForTable(buttonState, tableId, frame.remote64);
       }
-
-    if (analogValueAD2 !== undefined) {
-      console.log("AD2 Value: ", analogValueAD2)
-      handleSeat(analogValueAD2, mqttClient, 'AD2')
-    }
-
-    // Handle button state if DIO0 is present
-    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
-      buttonHandler.handleButtonState(frame.digitalSamples.DIO0);
+      
+      // Traiter les données des capteurs analogiques
+      if (analogValueAD2 !== undefined) {
+        console.log(`AD2 Value (Table ${tableId}): ${analogValueAD2}`);
+        handleSeat(analogValueAD2, mqttClient, `AD2_Table${tableId}`);
+      }
     }
   }
 });
