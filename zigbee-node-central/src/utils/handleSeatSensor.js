@@ -1,7 +1,7 @@
 const generateRestaurantUrl = require('./sender');
 
 module.exports = function handleSeatSensor(analogSamples, mqttClient, capteurId) {
-  const analogValue = analogSamples[capteurId];
+  const analogValue = analogSamples;
 
   if (analogValue === undefined) {
     console.error(`⚠️ Aucune valeur analogique trouvée pour le capteur ${capteurId}`);
