@@ -7,6 +7,7 @@ const handleBac = require('./utils/chrono');
 const mqtt = require('mqtt');
 const mqttClient = mqtt.connect('mqtt://test.mosquitto.org');
 const ButtonHandler = require('./utils/ButtonHandler');
+const handleSeat = require('./utils/handleSeatSensor');
 const config = require('./config');
 
 mqttClient.on('connect', () => {
@@ -189,6 +190,11 @@ function getAllXbeeIds() {
   return XBEE_CONFIGS.map(cfg => cfg.id);
 }
 
+    // Récupérer la valeur de AD0 et AD1
+    const analogValueAD0 = frame.analogSamples?.AD0;
+    const analogValueAD1 = frame.analogSamples?.AD1;
+    const analogValueAD2 = frame.analogSamples?.AD2;
+
 serialport.on("open", function () {
   console.log("Serial port opened successfully");
   
@@ -320,6 +326,15 @@ xbeeAPI.parser.on("data", function (frame) {
         }
         handleButtonForTable(buttonState, tableId, frame.remote64);
       }
+
+    if (analogValueAD2 !== undefined) {
+      console.log("AD2 Value: ", analogValueAD2)
+      handleSeat(analogValueAD2, mqttClient, 'AD2')
+    }
+
+    // Handle button state if DIO0 is present
+    if (frame.digitalSamples && frame.digitalSamples.DIO0 !== undefined) {
+      buttonHandler.handleButtonState(frame.digitalSamples.DIO0);
     }
   }
 });
