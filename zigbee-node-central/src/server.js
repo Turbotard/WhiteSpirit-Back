@@ -356,9 +356,3 @@ function handleButtonForTable(buttonState, tableId, xbeeId) {
   // Utiliser le ButtonHandler spécifique à cette table
   global.buttonHandlers[tableId].handleButtonState(buttonState, xbeeId);
 }
-
-// Définition des constantes LED pour le scope global
-const LED_D1 = "D1";
-const LED_D2 = "D2";
-const LED_ON = 4;  // 4 = Digital High (0x04 en hex)
-const LED_OFF = 0; // 0 = Digital Low (0x00 en hex)
